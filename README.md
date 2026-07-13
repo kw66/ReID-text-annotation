@@ -7,8 +7,6 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/annotations-12%2C075-2E8B57" alt="12,075 annotations">
-  <img src="https://img.shields.io/badge/code-MIT-4B5563" alt="MIT License">
-  <img src="https://img.shields.io/badge/data-CC%20BY%204.0-DB6B32" alt="CC BY 4.0">
 </p>
 
 ## 🧭 Task Map
@@ -225,18 +223,3 @@ If this repository helps your research, please cite:
   year      = {2026}
 }
 ```
-
-## 🔐 Privacy and Data Terms
-
-- No source image, dataset download link, local path, server configuration, API
-  endpoint, API key, or runtime log is included.
-- Images are sent only to the API configured by the user. Check that provider's
-  retention and privacy policy before running annotation.
-- Obtain each image dataset from its authorized source and follow its license,
-  access agreement, and privacy requirements.
-
-## 📄 License
-
-Runtime code is released under the [MIT License](LICENSE). Annotation JSONL
-files are released under [CC BY 4.0](DATA_LICENSE.md), subject to the original
-terms of each source image dataset.
