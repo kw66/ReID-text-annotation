@@ -9,6 +9,10 @@
   <img src="https://img.shields.io/badge/annotations-12%2C075-2E8B57" alt="12,075 annotations">
 </p>
 
+<p align="center">
+  <img src="assets/pid_level_annotation_protocol.png" width="100%" alt="PID-level dense text annotation protocol">
+</p>
+
 ## 🧭 Task Map
 
 <table width="100%">
