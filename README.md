@@ -217,9 +217,9 @@ If this repository helps your research, please cite:
 
 ```bibtex
 @inproceedings{wang2026pid,
-  title     = {{PID}-Level Dense Text and Attribute-Indexed Semantic Prototypes for Exemplar-Free Lifelong Person Re-Identification},
+  title     = {PID-Level Dense Text and Attribute-Indexed Semantic Prototypes for Exemplar-Free Lifelong Person Re-Identification},
   author    = {Wang, Chenyang and Liu, Bin and Li, Xulin and Yu, Nenghai},
-  booktitle = {Chinese Conference on Pattern Recognition and Computer Vision ({PRCV})},
+  booktitle = {Chinese Conference on Pattern Recognition and Computer Vision (PRCV)},
   year      = {2026}
 }
 ```
