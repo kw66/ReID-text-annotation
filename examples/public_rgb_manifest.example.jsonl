@@ -1,0 +1,1 @@
+{"dataset":"custom_rgb","pid":1,"modality":"rgb","images":[{"path":"images/person_0001/camera_01.jpg","camera_id":1,"split":"train"},{"path":"images/person_0001/camera_02.jpg","camera_id":2,"split":"gallery"}]}

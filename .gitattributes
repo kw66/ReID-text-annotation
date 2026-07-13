@@ -1,0 +1,10 @@
+* text=auto eol=lf
+*.py text eol=lf
+*.md text eol=lf
+*.toml text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.example text eol=lf
+*.sha256 text eol=lf
+examples/*.jsonl text eol=lf
+annotations/**/*.jsonl -text

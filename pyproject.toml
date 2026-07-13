@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "reid-text-annotation"
+version = "1.0.0"
+description = "Privacy-conscious text annotation tools for RGB and RGB/IR person ReID datasets"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {file = "LICENSE"}
+dependencies = [
+  "Pillow>=9.5",
+]
+
+[project.scripts]
+reid-text-annotate = "reid_text_annotation.cli:main"
+
+[project.urls]
+Repository = "https://github.com/kw66/ReID-text-annotation"
+
+[tool.setuptools.packages.find]
+include = ["reid_text_annotation*"]
