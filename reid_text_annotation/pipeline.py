@@ -52,18 +52,18 @@ _CAPTION_STYLES = [
 
 def _clean_caption_objects(value: object) -> list[dict[str, str]]:
     if not isinstance(value, list) or len(value) != len(_CAPTION_STYLES):
-        raise ValueError("RGB/IR model output must contain exactly 10 captions")
+        raise ValueError("Diverse model output must contain exactly 10 captions")
     by_style: dict[str, str] = {}
     for item in value:
         if not isinstance(item, dict):
-            raise ValueError("Each RGB/IR caption must be an object")
+            raise ValueError("Each diverse caption must be an object")
         style = str(item.get("style", "")).strip()
         text = " ".join(str(item.get("en", "")).split()).strip()
         if style not in _CAPTION_STYLES or not text or style in by_style:
-            raise ValueError("RGB/IR caption objects contain invalid style or text")
+            raise ValueError("Diverse caption objects contain invalid style or text")
         by_style[style] = text
     if set(by_style) != set(_CAPTION_STYLES):
-        raise ValueError("RGB/IR caption styles are incomplete")
+        raise ValueError("Diverse caption styles are incomplete")
     return [{"style": style, "en": by_style[style]} for style in _CAPTION_STYLES]
 
 
@@ -81,7 +81,7 @@ class AnnotationPipeline:
         for branch in BRANCH_INSTRUCTIONS:
             response = self.api.complete_json(
                 system_prompt=SYSTEM_PROMPT,
-                user_prompt=evidence_prompt(branch, group.modality),
+                user_prompt=evidence_prompt(branch, group.modality, group.task),
                 image_urls=image_urls,
                 temperature=0.0,
             )
@@ -93,14 +93,15 @@ class AnnotationPipeline:
         final = self.api.complete_json(
             system_prompt=SYSTEM_PROMPT,
             user_prompt=synthesis_prompt(
-                protocol=group.protocol,
+                annotation_format=group.annotation_format,
                 modality=group.modality,
+                task=group.task,
                 evidence=evidence,
             ),
-            temperature=0.25 if group.protocol == "rgb-ir" else 0.1,
+            temperature=0.25 if group.annotation_format == "diverse" else 0.1,
         )
         dense_en = _clean_dense_text(final.get("dense_en"))
-        if group.protocol == "public-rgb":
+        if group.annotation_format == "dense":
             return {"pid": group.pid, "dense_en": dense_en}
 
         captions = _clean_caption_objects(final.get("captions"))
@@ -113,8 +114,8 @@ class AnnotationPipeline:
         }
 
 
-def _record_key(record: dict[str, Any], protocol: str) -> tuple[int | str, ...]:
-    if protocol == "public-rgb":
+def _record_key(record: dict[str, Any], annotation_format: str) -> tuple[int | str, ...]:
+    if annotation_format == "dense":
         return (int(record["pid"]),)
     return (
         int(record["pid"]),
@@ -123,7 +124,10 @@ def _record_key(record: dict[str, Any], protocol: str) -> tuple[int | str, ...]:
     )
 
 
-def _read_existing(path: Path, protocol: str) -> dict[tuple[int | str, ...], dict[str, Any]]:
+def _read_existing(
+    path: Path,
+    annotation_format: str,
+) -> dict[tuple[int | str, ...], dict[str, Any]]:
     records: dict[tuple[int | str, ...], dict[str, Any]] = {}
     if not path.exists():
         return records
@@ -134,7 +138,7 @@ def _read_existing(path: Path, protocol: str) -> dict[tuple[int | str, ...], dic
             row = json.loads(line)
             if not isinstance(row, dict):
                 raise ValueError("Existing output contains a non-object JSONL row")
-            records[_record_key(row, protocol)] = row
+            records[_record_key(row, annotation_format)] = row
     return records
 
 
@@ -145,8 +149,8 @@ def _append_jsonl(path: Path, record: dict[str, Any]) -> None:
         handle.flush()
 
 
-def _normalize_output(path: Path, protocol: str) -> None:
-    records = _read_existing(path, protocol)
+def _normalize_output(path: Path, annotation_format: str) -> None:
+    records = _read_existing(path, annotation_format)
     ordered = [records[key] for key in sorted(records)]
     temporary = path.with_suffix(path.suffix + ".tmp")
     with temporary.open("w", encoding="utf-8", newline="\n") as handle:
@@ -190,10 +194,10 @@ def run_annotation(
     groups: list[AnnotationGroup],
     pipeline: AnnotationPipeline,
     output_path: Path,
-    protocol: str,
+    annotation_format: str,
     workers: int = 1,
 ) -> dict[str, int]:
-    existing = _read_existing(output_path, protocol)
+    existing = _read_existing(output_path, annotation_format)
     pending = [group for group in groups if group.resume_key not in existing]
     errors_path = output_path.with_suffix(".errors.jsonl")
     completed = 0
@@ -230,7 +234,7 @@ def run_annotation(
                     save_result(group, None, exc)
 
     if output_path.exists():
-        _normalize_output(output_path, protocol)
+        _normalize_output(output_path, annotation_format)
     return {
         "groups": len(groups),
         "already_complete": len(existing),

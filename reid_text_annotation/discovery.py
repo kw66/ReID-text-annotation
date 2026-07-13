@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import re
 from collections import defaultdict
 from pathlib import Path
@@ -11,11 +10,22 @@ from .models import AnnotationGroup, ImageRecord
 
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png"}
 PUBLIC_RGB_DATASETS = {"market1501", "dukemtmc", "cuhk03", "msmt17"}
+TASK_DATASETS = {
+    "traditional": PUBLIC_RGB_DATASETS,
+    "anytime": {"atustc"},
+    "clothes-changing": {"prcc"},
+    "visible-infrared": {"sysu-mm01"},
+}
 _PID_CAMERA_PATTERN = re.compile(r"^(-?\d+)_c(\d+)", re.IGNORECASE)
 _ATUSTC_PATTERN = re.compile(
     r"p(\d+)-d(\d+)-c(\d+)[\\/]cam(\d+)-f(\d+)-(\d+)\.(jpg|jpeg|png)$",
     re.IGNORECASE,
 )
+_PRCC_FLAT_PATTERN = re.compile(r"(\d+)_c(\d+)_(\d+)_(\d+)\.(jpg|jpeg|png)$", re.IGNORECASE)
+_PRCC_TRAIN_PATTERN = re.compile(r"(\d+)/([ABC])_cropped_rgb(\d+)\.(jpg|jpeg|png)$", re.IGNORECASE)
+_PRCC_TEST_PATTERN = re.compile(r"([ABC])/(\d+)/cropped_rgb(\d+)\.(jpg|jpeg|png)$", re.IGNORECASE)
+_SYSU_RAW_PATTERN = re.compile(r"cam(\d+)/(\d+)/(\d+)\.(jpg|jpeg|png)$", re.IGNORECASE)
+_SYSU_FLAT_PATTERN = re.compile(r"(\d+)_c(\d+)_(\d+)\.(jpg|jpeg|png)$", re.IGNORECASE)
 
 
 def _image_files(directory: Path) -> Iterable[Path]:
@@ -66,7 +76,11 @@ def _parse_public_name(path: Path, dataset: str) -> tuple[int, int | None] | Non
     return pid, camera_id
 
 
-def discover_public_rgb(data_root: Path, dataset: str) -> list[AnnotationGroup]:
+def discover_traditional(
+    data_root: Path,
+    dataset: str,
+    annotation_format: str,
+) -> list[AnnotationGroup]:
     dataset = dataset.strip().lower()
     if dataset not in PUBLIC_RGB_DATASETS:
         raise ValueError(f"Unsupported public RGB dataset: {dataset}")
@@ -98,8 +112,10 @@ def discover_public_rgb(data_root: Path, dataset: str) -> list[AnnotationGroup]:
     return [
         AnnotationGroup(
             dataset=dataset,
-            protocol="public-rgb",
+            task="traditional",
+            annotation_format=annotation_format,
             pid=pid,
+            clothes_id=1 if annotation_format == "diverse" else None,
             images=sorted(records, key=lambda item: str(item.path)),
         )
         for pid, records in sorted(grouped.items())
@@ -129,14 +145,12 @@ def discover_atustc(data_root: Path) -> list[AnnotationGroup]:
         )
 
     if not grouped:
-        raise ValueError(
-            "No valid RGB/IR images were discovered. Use --dataset manifest for a "
-            "different directory or filename convention."
-        )
+        raise ValueError("No valid AT-USTC images were discovered under the dataset root")
     return [
         AnnotationGroup(
             dataset="atustc",
-            protocol="rgb-ir",
+            task="anytime",
+            annotation_format="diverse",
             pid=pid,
             clothes_id=clothes_id,
             modality=modality,
@@ -153,88 +167,201 @@ def discover_atustc(data_root: Path) -> list[AnnotationGroup]:
     ]
 
 
-def _manifest_image(value: object, base_dir: Path) -> ImageRecord:
-    if isinstance(value, str):
-        raw_path = value
-        camera_id = None
-        split = ""
-        frame_index = 0
-    elif isinstance(value, dict):
-        raw_path = str(value.get("path", ""))
-        raw_camera = value.get("camera_id")
-        camera_id = int(raw_camera) if raw_camera is not None else None
-        split = str(value.get("split", ""))
-        frame_index = int(value.get("frame_index", 0))
-    else:
-        raise ValueError("Each manifest image must be a path string or an object")
-    if not raw_path:
-        raise ValueError("Manifest image path cannot be empty")
-    path = Path(raw_path)
-    if not path.is_absolute():
-        path = base_dir / path
-    return ImageRecord(
-        path=path.resolve(),
-        camera_id=camera_id,
-        split=split,
-        frame_index=frame_index,
-    )
+def _diverse_groups(
+    grouped: dict[tuple[int, int, str], list[ImageRecord]],
+    *,
+    dataset: str,
+    task: str,
+) -> list[AnnotationGroup]:
+    if not grouped:
+        raise ValueError(f"No valid images were discovered for {dataset}")
+    return [
+        AnnotationGroup(
+            dataset=dataset,
+            task=task,
+            annotation_format="diverse",
+            pid=pid,
+            clothes_id=clothes_id,
+            modality=modality,
+            images=sorted(
+                records,
+                key=lambda item: (
+                    item.camera_id if item.camera_id is not None else -1,
+                    item.frame_index,
+                    str(item.path),
+                ),
+            ),
+        )
+        for (pid, clothes_id, modality), records in sorted(grouped.items())
+    ]
 
 
-def load_manifest(path: Path, protocol: str) -> list[AnnotationGroup]:
-    groups: list[AnnotationGroup] = []
-    base_dir = path.resolve().parent
-    with path.open("r", encoding="utf-8") as handle:
-        for line_number, raw_line in enumerate(handle, start=1):
-            line = raw_line.strip()
-            if not line:
+def discover_prcc(data_root: Path) -> list[AnnotationGroup]:
+    root = data_root.resolve()
+    grouped: dict[tuple[int, int, str], list[ImageRecord]] = defaultdict(list)
+    prepared = all((root / name).exists() for name in ("train", "query", "gallery"))
+    if prepared:
+        for split, directory in (
+            ("train", root / "train"),
+            ("query", root / "query"),
+            ("gallery", root / "gallery"),
+        ):
+            for path in _image_files(directory):
+                match = _PRCC_FLAT_PATTERN.search(path.name)
+                if match is None:
+                    continue
+                pid, camera_id, clothes_id, frame, _suffix = match.groups()
+                grouped[(int(pid), int(clothes_id), "rgb")].append(
+                    ImageRecord(
+                        path=path.resolve(),
+                        camera_id=int(camera_id),
+                        split=split,
+                        frame_index=int(frame),
+                    )
+                )
+        return _diverse_groups(grouped, dataset="prcc", task="clothes-changing")
+
+    camera_clothes = {"A": (1, 1), "B": (2, 1), "C": (3, 2)}
+    rgb_root = root / "rgb"
+    for directory in (rgb_root / "train", rgb_root / "val"):
+        if not directory.exists():
+            continue
+        for path in sorted(directory.glob("*/*")):
+            if not path.is_file() or path.suffix.lower() not in IMAGE_SUFFIXES:
                 continue
-            try:
-                row = json.loads(line)
-            except json.JSONDecodeError as exc:
-                raise ValueError(f"Invalid JSON on manifest line {line_number}") from exc
-            if not isinstance(row, dict):
-                raise ValueError(f"Manifest line {line_number} must be a JSON object")
-            raw_images = row.get("images", [])
-            if not isinstance(raw_images, list):
-                raise ValueError(f"Manifest line {line_number} images must be an array")
-            images = [_manifest_image(item, base_dir) for item in raw_images]
-            if not images:
-                raise ValueError(f"Manifest line {line_number} has no images")
-            groups.append(
-                AnnotationGroup(
-                    dataset=str(row.get("dataset", "custom")),
-                    protocol=protocol,
-                    pid=int(row["pid"]),
-                    clothes_id=(
-                        int(row["clothes_id"])
-                        if row.get("clothes_id") is not None
-                        else None
-                    ),
-                    modality=str(row.get("modality", "rgb")),
-                    group_id=str(row.get("group_id", "")),
-                    images=images,
+            relative = path.relative_to(rgb_root).as_posix()
+            match = _PRCC_TRAIN_PATTERN.search(relative)
+            if match is None:
+                continue
+            pid, camera_tag, frame, _suffix = match.groups()
+            camera_id, clothes_id = camera_clothes[camera_tag.upper()]
+            grouped[(int(pid), clothes_id, "rgb")].append(
+                ImageRecord(
+                    path=path.resolve(),
+                    camera_id=camera_id,
+                    split="train",
+                    frame_index=int(frame),
                 )
             )
-    if not groups:
-        raise ValueError("Manifest contains no groups")
-    return sorted(groups, key=lambda group: group.resume_key)
+
+    test_root = rgb_root / "test"
+    if test_root.exists():
+        for path in sorted(test_root.glob("*/*/*")):
+            if not path.is_file() or path.suffix.lower() not in IMAGE_SUFFIXES:
+                continue
+            relative = path.relative_to(test_root).as_posix()
+            match = _PRCC_TEST_PATTERN.search(relative)
+            if match is None:
+                continue
+            camera_tag, pid, frame, _suffix = match.groups()
+            camera_id, clothes_id = camera_clothes[camera_tag.upper()]
+            split = "gallery" if camera_tag.upper() == "A" else "query"
+            grouped[(int(pid), clothes_id, "rgb")].append(
+                ImageRecord(
+                    path=path.resolve(),
+                    camera_id=camera_id,
+                    split=split,
+                    frame_index=int(frame),
+                )
+            )
+    return _diverse_groups(grouped, dataset="prcc", task="clothes-changing")
+
+
+def _sysu_available_ids(root: Path) -> set[int] | None:
+    path = root / "exp" / "available_id.txt"
+    if not path.exists():
+        return None
+    identifiers: set[int] = set()
+    for token in re.split(r"[\s,]+", path.read_text(encoding="utf-8").strip()):
+        if token:
+            try:
+                identifiers.add(int(token))
+            except ValueError:
+                continue
+    return identifiers
+
+
+def _sysu_modality(camera_id: int) -> str:
+    return "rgb" if camera_id in {1, 2, 4, 5} else "ir"
+
+
+def discover_sysu(data_root: Path) -> list[AnnotationGroup]:
+    root = data_root.resolve()
+    available_ids = _sysu_available_ids(root)
+    grouped: dict[tuple[int, int, str], list[ImageRecord]] = defaultdict(list)
+    raw_images = [
+        path
+        for path in sorted(root.glob("cam*/*/*"))
+        if path.is_file() and path.suffix.lower() in IMAGE_SUFFIXES
+    ]
+    if raw_images:
+        for path in raw_images:
+            relative = path.relative_to(root).as_posix()
+            match = _SYSU_RAW_PATTERN.search(relative)
+            if match is None:
+                continue
+            camera_id, pid, frame, _suffix = match.groups()
+            pid_value = int(pid)
+            if available_ids is not None and pid_value not in available_ids:
+                continue
+            camera_value = int(camera_id)
+            modality = _sysu_modality(camera_value)
+            grouped[(pid_value, 1, modality)].append(
+                ImageRecord(
+                    path=path.resolve(),
+                    camera_id=camera_value,
+                    split="all",
+                    frame_index=int(frame),
+                )
+            )
+        return _diverse_groups(grouped, dataset="sysu-mm01", task="visible-infrared")
+
+    for split, directory in (
+        ("train", root / "train"),
+        ("query", root / "query"),
+        ("gallery", root / "gallery"),
+    ):
+        for path in _image_files(directory):
+            match = _SYSU_FLAT_PATTERN.search(path.name)
+            if match is None:
+                continue
+            pid, camera_id, frame, _suffix = match.groups()
+            pid_value = int(pid)
+            if available_ids is not None and pid_value not in available_ids:
+                continue
+            camera_value = int(camera_id)
+            modality = _sysu_modality(camera_value)
+            grouped[(pid_value, 1, modality)].append(
+                ImageRecord(
+                    path=path.resolve(),
+                    camera_id=camera_value,
+                    split=split,
+                    frame_index=int(frame),
+                )
+            )
+    return _diverse_groups(grouped, dataset="sysu-mm01", task="visible-infrared")
 
 
 def discover_groups(
     *,
-    protocol: str,
+    task: str,
     dataset: str,
-    data_root: Path | None,
-    manifest: Path | None,
+    annotation_format: str,
+    data_root: Path,
 ) -> list[AnnotationGroup]:
-    if dataset == "manifest":
-        if manifest is None:
-            raise ValueError("--manifest is required when --dataset manifest is used")
-        return load_manifest(manifest, protocol)
-    if data_root is None:
-        raise ValueError("--data-root is required for built-in dataset adapters")
-    if protocol == "public-rgb":
-        return discover_public_rgb(data_root, dataset)
-    if protocol == "rgb-ir" and dataset == "atustc":
+    task = task.strip().lower()
+    dataset = dataset.strip().lower()
+    annotation_format = annotation_format.strip().lower()
+    if task not in TASK_DATASETS or dataset not in TASK_DATASETS[task]:
+        raise ValueError(f"Dataset {dataset!r} does not belong to task {task!r}")
+    if task == "traditional":
+        if annotation_format == "diverse" and dataset != "market1501":
+            raise ValueError("The released diverse traditional format is available only for Market-1501")
+        return discover_traditional(data_root, dataset, annotation_format)
+    if annotation_format != "diverse":
+        raise ValueError(f"Task {task!r} requires --format diverse")
+    if task == "anytime":
         return discover_atustc(data_root)
-    raise ValueError(f"Dataset {dataset!r} is not available for protocol {protocol!r}")
+    if task == "clothes-changing":
+        return discover_prcc(data_root)
+    return discover_sysu(data_root)

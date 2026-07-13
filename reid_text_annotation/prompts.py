@@ -33,7 +33,28 @@ BRANCH_INSTRUCTIONS = {
 }
 
 
-def evidence_prompt(branch: str, modality: str) -> str:
+def _task_rule(task: str) -> str:
+    rules = {
+        "traditional": (
+            "Summarize stable identity-level appearance across the available RGB views."
+        ),
+        "anytime": (
+            "The images share one person, clothing label, and modality within an anytime ReID group. "
+            "Use only cues that are valid for this group."
+        ),
+        "clothes-changing": (
+            "This is a changing-clothes group. Describe only the current clothing label and do not "
+            "merge garments from another outfit."
+        ),
+        "visible-infrared": (
+            "This is one modality group from a visible-infrared dataset. Do not transfer RGB-only "
+            "color evidence into infrared text."
+        ),
+    }
+    return rules[task]
+
+
+def evidence_prompt(branch: str, modality: str, task: str) -> str:
     if branch not in BRANCH_INSTRUCTIONS:
         raise ValueError(f"Unknown evidence branch: {branch}")
     modality_rule = (
@@ -45,6 +66,7 @@ def evidence_prompt(branch: str, modality: str) -> str:
         "across the evidence images."
     )
     return f"""All supplied images show the same annotation group.
+{_task_rule(task)}
 {modality_rule}
 
 Task: {BRANCH_INSTRUCTIONS[branch]}
@@ -60,8 +82,9 @@ Keep cues concise. Use empty arrays when no reliable cue is visible."""
 
 def synthesis_prompt(
     *,
-    protocol: str,
+    annotation_format: str,
     modality: str,
+    task: str,
     evidence: dict[str, Any],
 ) -> str:
     evidence_text = json.dumps(evidence, ensure_ascii=False, sort_keys=True)
@@ -71,7 +94,7 @@ def synthesis_prompt(
         else
         "Use color terms only when multiple evidence branches support them."
     )
-    if protocol == "public-rgb":
+    if annotation_format == "dense":
         output_rule = """Return exactly:
 {"dense_en": "one compact English identity-level description"}
 The description should merge stable cues across views, remove conflicts and
@@ -97,6 +120,7 @@ Create 10 non-contradictory captions: the first five should follow a stable
 head-to-toe ordering, while the last five should vary wording and cue order.
 Every caption must remain consistent with the same verified evidence."""
     return f"""Synthesize verified ReID evidence into release text.
+{_task_rule(task)}
 {modality_rule}
 Ignore every item in uncertain_cues. Resolve conflicts conservatively and omit
 weak claims. Do not add facts that are absent from the cue lists.

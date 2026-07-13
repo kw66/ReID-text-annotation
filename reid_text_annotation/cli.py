@@ -13,17 +13,24 @@ from .pipeline import AnnotationPipeline, dry_run, run_annotation
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Generate group-level text annotations for person ReID datasets.",
+        description=(
+            "Generate text annotations for traditional, anytime, changing-clothes, "
+            "and visible-infrared person ReID datasets."
+        ),
         allow_abbrev=False,
     )
-    parser.add_argument("--protocol", required=True, choices=["public-rgb", "rgb-ir"])
+    parser.add_argument(
+        "--task",
+        required=True,
+        choices=["traditional", "anytime", "clothes-changing", "visible-infrared"],
+    )
     parser.add_argument(
         "--dataset",
         required=True,
-        choices=["market1501", "dukemtmc", "cuhk03", "msmt17", "atustc", "manifest"],
+        choices=["market1501", "dukemtmc", "cuhk03", "msmt17", "atustc", "prcc", "sysu-mm01"],
     )
-    parser.add_argument("--data-root", type=Path)
-    parser.add_argument("--manifest", type=Path)
+    parser.add_argument("--format", dest="annotation_format", choices=["dense", "diverse"])
+    parser.add_argument("--data-root", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--env-file", type=Path, default=Path(".env"))
     parser.add_argument("--api-base-url")
@@ -46,15 +53,35 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
-    args = build_parser().parse_args()
+    parser = build_parser()
+    args = parser.parse_args()
     load_env_file(args.env_file)
 
-    groups = discover_groups(
-        protocol=args.protocol,
-        dataset=args.dataset,
-        data_root=args.data_root,
-        manifest=args.manifest,
-    )
+    annotation_format = args.annotation_format
+    if annotation_format is None:
+        annotation_format = "dense" if args.task == "traditional" else "diverse"
+    if args.max_images <= 0:
+        parser.error("--max-images must be positive")
+    if args.image_max_side <= 0:
+        parser.error("--image-max-side must be positive")
+    if args.workers <= 0:
+        parser.error("--workers must be positive")
+    if args.timeout_sec <= 0:
+        parser.error("--timeout-sec must be positive")
+    if args.retries < 0:
+        parser.error("--retries cannot be negative")
+    if args.max_output_tokens <= 0:
+        parser.error("--max-output-tokens must be positive")
+
+    try:
+        groups = discover_groups(
+            task=args.task,
+            dataset=args.dataset,
+            annotation_format=annotation_format,
+            data_root=args.data_root,
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
     if args.max_groups > 0:
         groups = groups[: args.max_groups]
 
@@ -90,7 +117,7 @@ def main() -> None:
         groups=groups,
         pipeline=pipeline,
         output_path=args.output,
-        protocol=args.protocol,
+        annotation_format=annotation_format,
         workers=max(1, args.workers),
     )
     print(json.dumps({"status": "complete", **summary}, ensure_ascii=False))

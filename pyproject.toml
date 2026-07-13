@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "reid-text-annotation"
-version = "1.0.0"
-description = "Privacy-conscious text annotation tools for RGB and RGB/IR person ReID datasets"
+version = "1.1.0"
+description = "Text annotation tools for traditional, anytime, changing-clothes, and visible-infrared ReID"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {file = "LICENSE"}

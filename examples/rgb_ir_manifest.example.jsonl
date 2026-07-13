@@ -1,2 +1,0 @@
-{"dataset":"custom_rgb_ir","pid":1,"clothes_id":1,"modality":"rgb","images":[{"path":"images/person_0001/clothes_001/rgb_camera_01.jpg","camera_id":1},{"path":"images/person_0001/clothes_001/rgb_camera_02.jpg","camera_id":2}]}
-{"dataset":"custom_rgb_ir","pid":1,"clothes_id":1,"modality":"ir","images":[{"path":"images/person_0001/clothes_001/ir_camera_01.jpg","camera_id":9},{"path":"images/person_0001/clothes_001/ir_camera_02.jpg","camera_id":10}]}

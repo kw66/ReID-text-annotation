@@ -15,7 +15,8 @@ class ImageRecord:
 @dataclass
 class AnnotationGroup:
     dataset: str
-    protocol: str
+    task: str
+    annotation_format: str
     pid: int
     images: list[ImageRecord] = field(default_factory=list)
     clothes_id: int | None = None
@@ -24,16 +25,24 @@ class AnnotationGroup:
 
     def __post_init__(self) -> None:
         self.dataset = self.dataset.strip().lower()
-        self.protocol = self.protocol.strip().lower()
+        self.task = self.task.strip().lower()
+        self.annotation_format = self.annotation_format.strip().lower()
         self.modality = self.modality.strip().lower()
-        if self.protocol not in {"public-rgb", "rgb-ir"}:
-            raise ValueError(f"Unsupported protocol: {self.protocol}")
+        if self.task not in {
+            "traditional",
+            "anytime",
+            "clothes-changing",
+            "visible-infrared",
+        }:
+            raise ValueError(f"Unsupported ReID task: {self.task}")
+        if self.annotation_format not in {"dense", "diverse"}:
+            raise ValueError(f"Unsupported annotation format: {self.annotation_format}")
         if self.modality not in {"rgb", "ir"}:
             raise ValueError(f"Unsupported modality: {self.modality}")
-        if self.protocol == "rgb-ir" and self.clothes_id is None:
-            raise ValueError("rgb-ir groups require clothes_id")
+        if self.annotation_format == "diverse" and self.clothes_id is None:
+            raise ValueError("Diverse annotation groups require clothes_id")
         if not self.group_id:
-            if self.protocol == "public-rgb":
+            if self.annotation_format == "dense":
                 self.group_id = f"{self.dataset}_pid{self.pid:04d}"
             else:
                 self.group_id = (
@@ -43,6 +52,6 @@ class AnnotationGroup:
 
     @property
     def resume_key(self) -> tuple[int | str, ...]:
-        if self.protocol == "public-rgb":
+        if self.annotation_format == "dense":
             return (self.pid,)
         return (self.pid, int(self.clothes_id), self.modality)
